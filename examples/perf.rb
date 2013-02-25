@@ -72,6 +72,7 @@ Net::HTTP.version_1_2
 
 ports = (START_PORT...(START_PORT+servers.size))
 servers.zip(handlers, ports).map{|s, handler, port|
+  puts "Running benchmark #{s}..."
   pid = fork do
     trap(:INT) { handler.shutdown }
     handler.run MyApp.new, :Port => port, :AccessLog => []
@@ -83,7 +84,10 @@ servers.zip(handlers, ports).map{|s, handler, port|
   dt = Time.now - timer
   Process.kill(:INT, pid)
   dt
+}.tap{
+  puts ""
+  puts "Benchmark results:"
 }.zip(servers){|dt, s|
   rps = 1.0 / (dt / N)
-  printf("%s\t\t%1.2f requests / sec (\t%1.4f sec)\n", s, rps, dt)
+  printf("%s\t\t%7.2f requests / sec (%5.4f sec)\n", s, rps, dt)
 }
