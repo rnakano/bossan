@@ -1,6 +1,7 @@
 require 'rack'
 require 'optparse'
 require 'net/http'
+require 'thread'
 
 KNOWN_SERVERS = [:webrick, :thin, :bossan]
 START_PORT = 8000
@@ -30,8 +31,10 @@ def wait
 end
 
 def send_requests addr, port, n, c
+  success = true
+  lock = Mutex.new
   c.times.map{
-    Thread.start{
+    Thread.start(lock){|lock|
       begin
         (n/c).times {
           Net::HTTP.start(addr, port){|http|
@@ -42,9 +45,13 @@ def send_requests addr, port, n, c
         }
       rescue => e
         puts e.to_s
+        lock.synchronize {
+          success = false
+        }
       end
     }
   }.each{|t| t.join}
+  success
 end
 
 
@@ -88,10 +95,14 @@ servers.zip(handlers, ports).map{|s, handler, port|
   Process.detach(pid)
   wait
   timer = Time.now
-  send_requests("localhost", port, n, c)
+  success = send_requests("localhost", port, n, c)
   dt = Time.now - timer
   Process.kill(:INT, pid)
-  dt
+  if success
+    dt
+  else
+    nil
+  end
 }.tap{
   puts ""
   puts "==Benchmark settings=="
@@ -104,6 +115,10 @@ servers.zip(handlers, ports).map{|s, handler, port|
   puts""
   puts "==Benchmark results=="
 }.zip(servers){|dt, s|
-  rps = 1.0 / (dt / N)
-  printf("%s\t\t%7.2f requests / sec (%5.4f sec)\n", s, rps, dt)
+  if dt
+    rps = 1.0 / (dt / N)
+    printf("%s\t\t%7.2f requests / sec (%5.4f sec)\n", s, rps, dt)
+  else
+    printf("%s\t\terror occurs. skip\n", s)
+  end
 }
