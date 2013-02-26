@@ -11,18 +11,6 @@ servers = [:webrick, :bossan]
 n = N
 c = C
 
-opt = OptionParser.new
-opt.on("-s Servers", "list of servers (default: webrick,bossan)"){|s|
-  servers = s.split(",").map(&:downcase).map(&:intern) & KNOWN_SERVERS
-}
-opt.on("-n TotalRequests", "number of total requests (default: 1000)"){|reqs|
-  n = reqs.to_i
-}
-opt.on("-c Connections", "number of total connections (default: 1)"){|cons|
-  c = cons.to_i
-}
-opt.parse!(ARGV)
-
 class MyApp
   def call env
     body = ['hi!']
@@ -37,20 +25,6 @@ class MyApp
   end
 end
 
-handlers = servers.map{|s|
-  case s
-  when :webrick
-    require 'webrick'
-    Rack::Handler::WEBrick
-  when :thin
-    require 'thin'
-    Rack::Handler::Thin
-  when :bossan
-    require 'bossan'
-    Rack::Handler::Bossan
-  end
-}
-
 def wait
   sleep 0.5
 end
@@ -58,15 +32,49 @@ end
 def send_requests addr, port, n, c
   c.times.map{
     Thread.start{
-      (n/c).times {
-        Net::HTTP.start(addr, port){|http|
-          response = http.get("/")
-          raise "Body error" unless response.body != "hi"
+      begin
+        (n/c).times {
+          Net::HTTP.start(addr, port){|http|
+            response = http.get("/")
+            raise "Error: status code is not 200, but #{response.code}" unless response.code.to_i == 200
+            raise "Error: body broken" unless response.body == "hi!"
+          }
         }
-      }
+      rescue => e
+        puts e.to_s
+      end
     }
   }.each{|t| t.join}
 end
+
+
+opt = OptionParser.new
+opt.on("-s Servers", "list of servers (default: webrick,bossan)"){|s|
+  servers = s.split(",").map(&:downcase).map(&:intern) & KNOWN_SERVERS
+}
+opt.on("-n TotalRequests", "number of total requests (default: 1000)"){|reqs|
+  n = reqs.to_i
+}
+opt.on("-c Connections", "number of total connections (default: 1)"){|cons|
+  c = cons.to_i
+}
+opt.parse!(ARGV)
+
+server_map = servers.map{|s|
+  case s
+  when :webrick
+    require 'webrick'
+    [Rack::Handler::WEBrick, WEBrick::VERSION]
+  when :thin
+    require 'thin'
+    [Rack::Handler::Thin, Thin::VERSION::STRING]
+  when :bossan
+    require 'bossan'
+    [Rack::Handler::Bossan, Bossan::VERSION]
+  end
+}
+handlers = server_map.map{|a| a[0]}
+versions = server_map.map{|a| a[1]}
 
 Net::HTTP.version_1_2
 
@@ -86,7 +94,15 @@ servers.zip(handlers, ports).map{|s, handler, port|
   dt
 }.tap{
   puts ""
-  puts "Benchmark results:"
+  puts "==Benchmark settings=="
+  puts "ruby: " + RUBY_DESCRIPTION
+  puts "requests: #{n}"
+  puts "connections: #{c}"
+  puts "servers: " + servers.zip(versions).map{|s, v|
+    "#{s} (#{v})"
+  }.join(", ")
+  puts""
+  puts "==Benchmark results=="
 }.zip(servers){|dt, s|
   rps = 1.0 / (dt / N)
   printf("%s\t\t%7.2f requests / sec (%5.4f sec)\n", s, rps, dt)
