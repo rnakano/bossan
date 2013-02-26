@@ -116,7 +116,7 @@ servers.zip(handlers, ports).map{|s, handler, port|
   puts "==Benchmark results=="
 }.zip(servers){|dt, s|
   if dt
-    rps = 1.0 / (dt / N)
+    rps = 1.0 / (dt / n)
     printf("%s\t\t%7.2f requests / sec (%5.4f sec)\n", s, rps, dt)
   else
     printf("%s\t\terror occurs. skip\n", s)
